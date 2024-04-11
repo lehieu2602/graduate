@@ -3,6 +3,7 @@ import copy
 import math
 import random
 from itertools import islice
+import heapq
 
 global network
 global SFCs
@@ -44,14 +45,91 @@ def f1(servers, population):  # hàm mục tiêu cost
     return f1_re
 
 
-def sub_f2(population, SFCs, last_loop):
+def get_weight(source, destination):
+    s = int(source.split("_")[0])
+    d = int(destination.split("_")[0])
+    if s == d:
+        return network.N[d].delay
+
+    try:
+        id_link = f"{s}-{d}"
+        edge_weight = network.L[id_link].delay
+        server_weight = network.N[d].delay
+        return edge_weight + server_weight
+    except:
+        id_link = f"{d}-{s}"
+        edge_weight = network.L[id_link].delay
+        server_weight = network.N[d].delay
+        return edge_weight + server_weight
+
+
+def find_shortest_path(network_expand, start, destination, vnf_requirements, clone_network):
+    dist = {node: float('inf') for node in network_expand.nodes}
+    dist[start] = 0
+
+    pq = [(0, start)]
+    visited = {node: False for node in network_expand.nodes}
+
+    # Dùng prev_node để lưu trữ đỉnh trước của mỗi đỉnh
+    prev_node = {}
+
+    i = 0  # index vnf demand
+    while pq:
+        # Lấy đỉnh có khoảng cách ngắn nhất từ start
+        current_dist, current_node = heapq.heappop(pq)
+
+        # Kiểm tra xem có phải đỉnh đích không
+        if str(destination) in network_expand.adj[str(current_node)]:
+            current_dist += get_weight(str(current_node), str(destination))
+            prev_node[str(destination)] = current_node
+            path = []
+            node = str(destination)
+            while node != 'None':
+                path.append(node)
+                node = str(prev_node.get(node)).split("_")[0]
+
+            path.reverse()
+
+            return list(map(int, path)), current_dist
+        visited[str(current_node)] = True
+
+        # Duyệt qua các đỉnh kề của đỉnh hiện tại
+        for adj_node in network_expand.adj[str(current_node)]:
+            if not visited[adj_node]:
+                distance = current_dist + get_weight(str(current_node), str(adj_node))
+                # Nếu khoảng cách mới tốt hơn khoảng cách hiện tại
+                if distance < dist[adj_node]:
+                    prev_node[adj_node] = current_node
+                    network_node = clone_network.N[int(adj_node.split("_")[0])]
+                    if network_node.type == 1 and i < len(
+                            vnf_requirements) and vnf_requirements[i] in network_node.vnf_used:
+                        i += 1
+                        dist[adj_node] = min(dist[adj_node], distance)
+                        heapq.heappush(pq, (dist[adj_node], adj_node))
+                    elif distance < dist[adj_node]:
+                        dist[adj_node] = distance
+                        heapq.heappush(pq, (distance, adj_node))
+    if i != len(vnf_requirements) - 1:
+        return [], 10000000
+
+    return [], 10000000
+
+
+def find_path_and_delay(population, SFCs, last_loop):
     f2_re = []
     clone_network = copy.deepcopy(network)
+    valid = True
     for sol in population:
-        print(sol)
         re = 0
-        tmp = []
-        invalid_sol = False
+        for sfc in SFCs.sfc_set:  # check sol có thoả mãn vnf yêu cầu của từng sfc
+            i = 0
+            for invid in sol:
+                if invid == sfc.vnf_demand[i]:
+                    i += 1
+                if i >= len(sfc.vnf_demand):
+                    break
+            if i < len(sfc.vnf_demand) - 1:
+                continue
 
         for i in range(len(sol)):
             if sol[i] != -1:
@@ -59,20 +137,42 @@ def sub_f2(population, SFCs, last_loop):
         clone_network.create_networkx_expand()
 
         for sfc in SFCs.sfc_set:
-            path, delay = clone_network.find_most_efficient_path(sfc)
-            if path is None:
-                invalid_sol = True
+            path, delay = find_shortest_path(clone_network.nx_network_expand, sfc.source, sfc.destination,
+                                             sfc.vnf_demand, clone_network)
+
+            if not path:
+                valid = False
+                break
+
             re += delay
-            if last_loop:
-                tmp.append(path)
-        if not invalid_sol:
-            if last_loop:
-                paths.append(tmp)
-        f2_re.append(re)
+        # print(sol)
+        # re = 0
+        # tmp = []
+        # invalid_sol = False
+        #
+        # for i in range(len(sol)):
+        #     if sol[i] != -1:
+        #         clone_network.N_server[i // d_max].vnf_used.append(sol[i])
+        # clone_network.create_networkx_expand()
+        #
+        # for sfc in SFCs.sfc_set:
+        #     path, delay = clone_network.find_most_efficient_path(sfc)
+        #     if path is None:
+        #         invalid_sol = True
+        #     re += delay
+        #     if last_loop:
+        #         tmp.append(path)
+        # if not invalid_sol:
+        #     if last_loop:
+        #         paths.append(tmp)
+        # f2_re.append(re)
 
         for server in clone_network.N_server:
             server.vnf_used = []
-    return f2_re
+        f2_re.append(re)
+    if not valid:
+        return [], f2_re
+    return [1, 23], f2_re
 
 
 def f2(servers, population, SFCs, last_loop=False):  # hàm mục tiêu delay
@@ -89,7 +189,7 @@ def f2(servers, population, SFCs, last_loop=False):  # hàm mục tiêu delay
         futures = []
         for chunk in l_chunk:
             print(f"idx:{idx}")
-            future = executor.submit(sub_f2, chunk, SFCs, last_loop)
+            future = executor.submit(find_path_and_delay, chunk, SFCs, last_loop)
             futures.append(future)
             idx += len(chunk)
 
@@ -104,25 +204,34 @@ def generate_population(servers, p_size):  # sinh ra quần thể Pt lúc ban đ
     global d_max
     d_max = d_s_max.num_vnfs_limit
 
-    for _ in range(p_size):
+    while len(temp_set) <= p_size:
+        print(len(temp_set))
         invid = []  # cách đặt vnf mỗi server
+        l_vnf = []
+        for sfc in SFCs.sfc_set:
+            l_vnf.extend(sfc.vnf_demand)
         for i_server in range(len(servers)):
             tmp = []
             j = 0
-            l_vnf = copy.deepcopy(servers[i_server].vnf_possible)
             while j < servers[i_server].num_vnfs_limit:
-                if random.randint(1, 4) > 1:
-                    vnf_choice = random.choice(l_vnf)
-                    tmp.append(vnf_choice)
-                else:
-                    tmp.append(-1)
+                # if random.randint(1, 4) > 1:
+                #     vnf_choice = random.choice(l_vnf)
+                #     tmp.append(vnf_choice)
+                # else:
+                #     tmp.append(-1)
+                vnf_choice = random.choice(l_vnf)
+                tmp.append(vnf_choice)
                 j += 1
 
             while len(tmp) < d_max:
                 tmp.append(-1)
 
             invid.extend(tmp)
-        temp_set.add(tuple(invid))
+        print(invid)
+        path, delay = find_path_and_delay([invid], SFCs, False)
+        # path, delay = find_path_and_delay([[8, 1, 3, 9, 0, 7, 7, 4, 3, 9, 0, 6, -1, 7, 4, 9, 1, 0, -1]], SFCs, False)
+        if len(path) != 0:
+            temp_set.add(tuple(invid))
 
     global Pt
     Pt = list(temp_set)
