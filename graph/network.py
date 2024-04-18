@@ -103,7 +103,7 @@ class Network:
             idx = 1
             for out_node_id, link in self.adj[in_node_id].items():
                 if self.N[in_node_id].type == 1:
-                    for i in range(len(self.N[in_node_id].vnf_used)):
+                    for i in range(len(self.N[in_node_id].vnf_used) - 1):
                         for j in range(idx):
                             if j == 0:
                                 source_id = str(link.source.id)
@@ -222,7 +222,7 @@ class Network:
 
         for cnt, path in enumerate(
                 networkx.shortest_simple_paths(self.nx_network_expand, source_id, destination_id, self.get_weight)):
-            if cnt >= 50 and self.num_nodes > 50:
+            if cnt >= 1 and self.num_nodes > 50:
                 break
             if len(path) > max_hop and max_hop != -1:
                 break

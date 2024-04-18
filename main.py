@@ -7,7 +7,7 @@ if __name__ == '__main__':
     # print(network.__repr__())
     SFCs = SFC_SET(input_path=r"D:\PY\graduate\data_with_delay_v2\input00\request10.txt")
     # print(SFCs.__repr__())
-
+    # network.visualize()
     set_value_network(network)
     set_SFCs(SFCs)
-    main(100, 200, 90)
+    main(20, 200, 90)
