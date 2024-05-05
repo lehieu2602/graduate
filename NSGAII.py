@@ -1,16 +1,22 @@
 import concurrent.futures
 import copy
+import json
+import logging
 import math
+import os
 import random
 from itertools import islice
 import heapq
 import matplotlib.pyplot as plt
+import numpy as np
 
 global network
 global SFCs
 global paths
 Pt = []
 d_max = 0
+
+logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def chunk_list(arr_range, arr_size):
@@ -32,22 +38,24 @@ def f1(servers, population):  # hàm mục tiêu cost
     f1_re = []
 
     for sol in population:
-        re = 0
+        cost_server = 0
+        cost_vnf = 0
         cnt = 1
         cnt_empty_slot = 0
         for i in range(len(sol)):
             if sol[i] != -1:
                 idx = servers[i // d_max].vnf_possible.index(sol[i])
-                re += servers[i // d_max].vnf_cost[idx]
+                cost_vnf += servers[i // d_max].vnf_cost[idx]
             else:
                 cnt_empty_slot += 1
 
             if cnt % d_max == 0:
                 if cnt_empty_slot > 0:
-                    re += servers[i // d_max].cost
+                    cost_server += servers[i // d_max].cost
                 cnt_empty_slot = 0
 
             cnt += 1
+        re = ((cost_server / network.sum_cost_servers) + (cost_vnf / np.sum(network.cost_vnfs))) / 2
         f1_re.append(re)
 
     return f1_re
@@ -62,12 +70,18 @@ def get_weight(source, destination):
     try:
         id_link = f"{s}-{d}"
         edge_weight = network.L[id_link].delay
-        server_weight = network.N[d].delay
+        try:
+            server_weight = network.N_server[d].delay
+        except:
+            server_weight = 0
         return edge_weight + server_weight
     except:
         id_link = f"{d}-{s}"
         edge_weight = network.L[id_link].delay
-        server_weight = network.N[d].delay
+        try:
+            server_weight = network.N_server[d].delay
+        except:
+            server_weight = 0
         return edge_weight + server_weight
 
 
@@ -78,18 +92,30 @@ def get_weight_path(path):
         d = path[i + 1]
         if s == d:
             re += network.N[d].delay
+            continue
+        server_weight = 0
 
         try:
-            id_link = f"{s}-{d}"
-            edge_weight = network.L[id_link].delay
-            server_weight = network.N[d].delay
-            re += edge_weight + server_weight
-        except:
-            id_link = f"{d}-{s}"
-            edge_weight = network.L[id_link].delay
-            server_weight = network.N[d].delay
-            re += edge_weight + server_weight
-
+            try:
+                id_link = f"{s}-{d}"
+                edge_weight = network.L[id_link].delay
+                if i < len(path) - 2:
+                    try:
+                        server_weight = network.N_server[d].delay
+                    except:
+                        server_weight = 0
+                re += edge_weight + server_weight
+            except:
+                id_link = f"{d}-{s}"
+                edge_weight = network.L[id_link].delay
+                if i < len(path) - 2:
+                    try:
+                        server_weight = network.N_server[d].delay
+                    except:
+                        server_weight = 0
+                re += edge_weight + server_weight
+        except Exception as e:
+            logging.error(f'Path: {path} - Network: {network.name} - SFC: {SFCs.name} - Exception: {e}')
     return re
 
 
@@ -104,7 +130,7 @@ def dijkstra(start, sfc, clone_network, des=None):
 
     # Dùng prev_node để lưu trữ đỉnh trước của mỗi đỉnh
     prev_node = {}
-
+    same_node = 0
     while pq:
         # Lấy đỉnh có khoảng cách ngắn nhất từ start
         current_dist, current_node = heapq.heappop(pq)
@@ -123,13 +149,17 @@ def dijkstra(start, sfc, clone_network, des=None):
         if to_end:
             path = []
             node = current_node
-            while node:
+            while node != start:
                 path.append(node)
                 node = prev_node.get(node)
-
+            path.append(start)
             path.reverse()
+            if same_node == 0:  # nếu server đó có luôn vnf demand tiếp theo thì sẽ lấy node đó
+                return path
+            else:  # không chứa vnf demand tiếp theo thì bỏ qua
+                return path[1:]
 
-            return path, get_weight_path(path)
+        same_node += 1
 
         # Duyệt qua các đỉnh kề của đỉnh hiện tại
         for adj_node in clone_network1.nx_network.adj[current_node]:
@@ -143,42 +173,44 @@ def dijkstra(start, sfc, clone_network, des=None):
                         dist[adj_node] = distance
                         heapq.heappush(pq, (distance, adj_node))
 
-    return [], 10000000
+    return []
 
 
 def find_shortest_path(sfc, clone_network):
     clone_network1 = copy.deepcopy(clone_network)
     clone_sfc = copy.deepcopy(sfc)
-    path = []
+    path = [sfc.source]
     source = sfc.source
-    total_delay = 0
     valid_path = True
 
     while True:
         if clone_sfc.vnf_demand:
-            sub_path, delay = dijkstra(source, clone_sfc, clone_network1)
+            sub_path = dijkstra(source, clone_sfc, clone_network1)
 
             if sub_path:
                 path.extend(sub_path)
-                total_delay += delay
                 source = sub_path[len(sub_path) - 1]
                 clone_sfc.vnf_demand.pop(0)
             else:
                 valid_path = False
                 break
         else:
-            sub_path, delay = dijkstra(source, clone_sfc, clone_network1, clone_sfc.destination)
+            sub_path = dijkstra(source, clone_sfc, clone_network1, clone_sfc.destination)
 
             if sub_path:
                 path.extend(sub_path)
-                total_delay += delay
             else:
                 valid_path = False
             break
     if valid_path:
-        return path, total_delay
+        return path, get_weight_path(path)
     else:
         return [], 10000000
+
+
+def find_path_sfc(sfc, clone_network):
+    path, delay = find_shortest_path(sfc, clone_network)
+    return path, delay
 
 
 def find_path_and_delay(population, SFCs):
@@ -201,15 +233,20 @@ def find_path_and_delay(population, SFCs):
             if sol[i] != -1:
                 clone_network.N_server[i // d_max].vnf_used.append(sol[i])
 
-        for sfc in SFCs.sfc_set:
-            path, delay = find_shortest_path(sfc, clone_network)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(SFCs.sfc_set)) as executor:
+            futures = []
+            for sfc in SFCs.sfc_set:
+                future = executor.submit(find_path_sfc, sfc, clone_network)
+                futures.append(future)
 
-            if not path:
-                valid = False  # dùng gen population lần đầu
-                break
-            re += delay
-        for server in clone_network.N_server:
-            server.vnf_used = []
+            if not all(future.result()[0] for future in futures):
+                valid = False
+            for future in futures:
+                re += future.result()[1]
+
+        [server.vnf_used.clear() for server in clone_network.N_server]
+
+        re /= (network.total_delay_link + network.total_delay_server) * SFCs.num_sfc
         f2_re.append(re)
 
     return valid, f2_re
@@ -222,7 +259,7 @@ def f2(population, SFCs, last_loop=False):  # hàm mục tiêu delay
 
     idx = 0
 
-    l_chunk = list(chunk_list(population, 25))
+    l_chunk = list(chunk_list(population, 1))
     num_threads = len(l_chunk)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
@@ -395,16 +432,18 @@ def get_better_solution(num_of_solution, front, crowding_distance_values, popula
     return solutions
 
 
-def visualize_perato(f1, f2):
-    plt.scatter(f1, f2, color='blue')
+def visualize_perato(fronts, f1, f2):
+    colors = plt.cm.tab10(range(len(fronts)))
 
-    for i in range(len(f1)):
-        plt.text(f1[i], f2[i], f'({f1[i]}, {f2[i]})', fontsize=9, ha='center', va='bottom')
+    for i, front in enumerate(fronts):
+        front_f1 = [f1[idx] for idx in front]
+        front_f2 = [f2[idx] for idx in front]
+        plt.scatter(front_f1, front_f2, color=colors[i])
 
     plt.xlabel('Cost')
     plt.ylabel('Delay')
 
-    plt.show()
+    plt.savefig(f"./experiments/images/{network.name}_{SFCs.name}.png")
 
 
 def main(p_size, num_loop, birth_rate):
@@ -414,6 +453,7 @@ def main(p_size, num_loop, birth_rate):
     print(Pt)
     print(f2_re)
     f1_re = f1(servers, Pt)
+    result = {"network": network.name, "request": SFCs.name, "p_size": p_size}
 
     front_perato = fast_non_dominated_sort(f1_re, f2_re)
 
@@ -456,10 +496,6 @@ def main(p_size, num_loop, birth_rate):
                                  copy.deepcopy(crowding_distance_values), Rt)
 
         f1_re = f1(servers, Pt)
-        # re_path = []
-        # if gen_num == gen_max:
-        #     re_path, f2_re = f2(Pt, SFCs, True)
-        # else:
         f2_re = f2(Pt, SFCs)
         print(f"f2:{f2_re}")
         front_perato = fast_non_dominated_sort(f1_re, f2_re)
@@ -467,8 +503,12 @@ def main(p_size, num_loop, birth_rate):
         print(f"Done gen {gen_num}")
 
         if gen_num == gen_max:
-            visualize_perato(f1_re, f2_re)
+            visualize_perato(front_perato, f1_re, f2_re)
         gen_num += 1
-
-    print(f"Best solutions after {gen_num}:")
+    result.update({"front_perato": front_perato[0], "cost": f1_re, "delay": f2_re, "front": front_perato})
+    out_path = "./experiments"
+    os.makedirs(out_path, exist_ok=True)
+    file_name = f"{result['network']}_{result['request']}"
+    with open(os.path.join(out_path, file_name), 'a') as f:
+        json.dump(result, f)
     print(front_perato[0])
