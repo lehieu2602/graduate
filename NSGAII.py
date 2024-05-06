@@ -354,12 +354,14 @@ def fast_non_dominated_sort(values1, values2):
             if j == i:
                 continue
 
-            if (values1[i] <= values1[j] and values2[i] <= values2[j]) and (
-                    values1[i] < values1[j] or values2[i] < values2[j]):  # so sánh xem i dominate j không
+            if (values1[i] < values1[j] and values2[i] < values2[j]) or (
+                    values1[i] <= values1[j] and values2[i] < values2[j]) or (
+                    values1[i] < values1[j] and values2[i] <= values2[j]):  # so sánh xem i dominate j không
                 if j not in S[i]:
                     S[i].append(j)
-            elif (values1[i] >= values1[j] and values2[i] >= values2[j]) and (
-                    values1[i] > values1[j] or values2[i] > values2[j]):  # so sánh xem i bị dominate bởi j không
+            elif (values1[i] > values1[j] and values2[i] > values2[j]) or (
+                    values1[i] >= values1[j] and values2[i] > values2[j]) or (
+                    values1[i] > values1[j] and values2[i] >= values2[j]):  # so sánh xem i bị dominate bởi j không
                 c[i] += 1
 
         if c[i] == 0:
@@ -403,9 +405,10 @@ def crowding_distance(value1, value2, front_perato):
     sorted_idx_f2 = sort_by_values(front_perato, copy.deepcopy(value2))
 
     for node in range(1, len(front_perato) - 1):
-        distance[node] = value1[sorted_idx_f1[node + 1]] - value1[sorted_idx_f1[node - 1]] / (max(value1) - min(value1))
-        distance[node] += value2[sorted_idx_f2[node + 1]] - value2[sorted_idx_f2[node - 1]] / (
-                max(value2) - min(value2))
+        distance[node] = abs(value1[sorted_idx_f1[node + 1]] - value1[sorted_idx_f1[node - 1]] / (
+                max(value1) - min(value1)))
+        distance[node] += abs(value2[sorted_idx_f2[node + 1]] - value2[sorted_idx_f2[node - 1]] / (
+                max(value2) - min(value2)))
 
     return distance
 
