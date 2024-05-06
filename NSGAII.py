@@ -398,16 +398,22 @@ def sort_by_values(front, values):
 
 def crowding_distance(value1, value2, front_perato):
     distance = [0 for _ in range(len(front_perato))]
-    distance[0] = math.inf
-    distance[len(distance) - 1] = math.inf
 
     sorted_idx_f1 = sort_by_values(front_perato, copy.deepcopy(value1))
     sorted_idx_f2 = sort_by_values(front_perato, copy.deepcopy(value2))
 
-    for node in range(1, len(front_perato) - 1):
-        distance[node] = abs(value1[sorted_idx_f1[node + 1]] - value1[sorted_idx_f1[node - 1]] / (
+    distance[front_perato.index(sorted_idx_f2[0])] = math.inf
+    distance[front_perato.index(sorted_idx_f2[len(distance) - 1])] = math.inf
+
+    for node in sorted_idx_f1[1:len(sorted_idx_f1) - 1]:
+        idx = front_perato.index(node)  # vị trí trong distance
+        sorted_idx = sorted_idx_f1.index(node)  # vị trí trong sorted_idx_f1
+        distance[idx] = abs(value1[sorted_idx_f1[sorted_idx + 1]] - value1[sorted_idx_f1[sorted_idx - 1]] / (
                 max(value1) - min(value1)))
-        distance[node] += abs(value2[sorted_idx_f2[node + 1]] - value2[sorted_idx_f2[node - 1]] / (
+    for node in sorted_idx_f2[1:len(sorted_idx_f2) - 1]:
+        idx = front_perato.index(node)
+        sorted_idx = sorted_idx_f2.index(node)
+        distance[idx] += abs(value2[sorted_idx_f2[sorted_idx + 1]] - value2[sorted_idx_f2[sorted_idx - 1]] / (
                 max(value2) - min(value2)))
 
     return distance
@@ -436,6 +442,7 @@ def get_better_solution(num_of_solution, front, crowding_distance_values, popula
 
 
 def visualize_perato(fronts, f1, f2):
+    plt.clf()
     colors = plt.cm.tab10(range(len(fronts)))
 
     for i, front in enumerate(fronts):
@@ -443,10 +450,12 @@ def visualize_perato(fronts, f1, f2):
         front_f2 = [f2[idx] for idx in front]
         plt.scatter(front_f1, front_f2, color=colors[i])
 
+
     plt.xlabel('Cost')
     plt.ylabel('Delay')
+    plt.show()
 
-    plt.savefig(f"./experiments/images/{network.name}_{SFCs.name}.png")
+    # plt.savefig(f"./experiments/images/{network.name}_{SFCs.name}.png")
 
 
 def main(p_size, num_loop, birth_rate):
@@ -504,11 +513,10 @@ def main(p_size, num_loop, birth_rate):
         front_perato = fast_non_dominated_sort(f1_re, f2_re)
         print(f"front2: {front_perato}")
         print(f"Done gen {gen_num}")
-
-        if gen_num == gen_max:
-            visualize_perato(front_perato, f1_re, f2_re)
         gen_num += 1
+
     result.update({"front_perato": front_perato[0], "cost": f1_re, "delay": f2_re, "front": front_perato})
+    visualize_perato(front_perato, f1_re, f2_re)
     out_path = "./experiments"
     os.makedirs(out_path, exist_ok=True)
     file_name = f"{result['network']}_{result['request']}"
