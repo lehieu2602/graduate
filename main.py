@@ -17,4 +17,5 @@ if __name__ == '__main__':
             SFCs = SFC_SET(input_path=sfc_path)
             set_value_network(network)
             set_SFCs(SFCs)
-            main(20, 50, 90)
+            print(network.name + "_" + SFCs.name)
+            main(20, 200, 90)

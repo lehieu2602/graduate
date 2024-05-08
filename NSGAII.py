@@ -291,12 +291,16 @@ def generate_population(servers, p_size):  # sinh ra quần thể Pt lúc ban đ
             tmp = []
             j = 0
             while j < servers[i_server].num_vnfs_limit:
-                if random.randint(1, 4) > 1:
-                    vnf_choice = random.choice(l_vnf)
-                    tmp.append(vnf_choice)
-                    l_vnf.remove(vnf_choice)
+                if l_vnf:
+                    if random.randint(1, 4) > 1:
+                        vnf_choice = random.choice(l_vnf)
+                        tmp.append(vnf_choice)
+                        l_vnf.remove(vnf_choice)
+                    else:
+                        tmp.append(-1)
                 else:
-                    tmp.append(-1)
+                    for sfc in SFCs.sfc_set:
+                        l_vnf.extend(sfc.vnf_demand)
                 j += 1
 
             while len(tmp) < d_max:
@@ -387,33 +391,41 @@ def fast_non_dominated_sort(values1, values2):
     return front_perato
 
 
-def sort_by_values(front, values):
-    sorted_list = []
-    while len(sorted_list) != len(front):
-        if values.index(min(values)) in front:
-            sorted_list.append(values.index(min(values)))
-        values[values.index(min(values))] = math.inf
+def sort_by_values(front, value1, value2):
+    points = [(value1[i], value2[i], i) for i in front]
+
+    sorted_list = sorted(points, key=lambda point: (point[0], point[1]))
+
     return sorted_list
 
 
 def crowding_distance(value1, value2, front_perato):
     distance = [0 for _ in range(len(front_perato))]
 
-    sorted_idx_f1 = sort_by_values(front_perato, copy.deepcopy(value1))
-    sorted_idx_f2 = sort_by_values(front_perato, copy.deepcopy(value2))
+    sorted_point = sort_by_values(front_perato, value1, value2)
 
-    distance[front_perato.index(sorted_idx_f2[0])] = math.inf
-    distance[front_perato.index(sorted_idx_f2[len(distance) - 1])] = math.inf
+    distance[front_perato.index(sorted_point[0][2])] = math.inf
+    distance[front_perato.index(sorted_point[len(distance) - 1][2])] = math.inf
 
-    for node in sorted_idx_f1[1:len(sorted_idx_f1) - 1]:
+    min_point = sorted_point[0]
+    max_point = sorted_point[-1]
+
+    for i, point in enumerate(sorted_point[1:len(sorted_point) - 1]):
+        i += 1  # để cập nhật đúng vị trí từ 1 theo danh sách duyệt từ vị trí 1
+        if point[:2] == min_point[:2] or point[:2] == max_point[:2]:
+            distance[front_perato.index(sorted_point[i][2])] = math.inf
+
+    sorted_idx = [idx[2] for idx in sorted_point]
+
+    for node in sorted_idx[1:len(sorted_idx) - 1]:
         idx = front_perato.index(node)  # vị trí trong distance
-        sorted_idx = sorted_idx_f1.index(node)  # vị trí trong sorted_idx_f1
-        distance[idx] = abs(value1[sorted_idx_f1[sorted_idx + 1]] - value1[sorted_idx_f1[sorted_idx - 1]] / (
+        i_sorted_idx = sorted_idx.index(node)  # vị trí trong sorted_idx
+        distance[idx] = abs(value1[sorted_idx[i_sorted_idx + 1]] - value1[sorted_idx[i_sorted_idx - 1]] / (
                 max(value1) - min(value1)))
-    for node in sorted_idx_f2[1:len(sorted_idx_f2) - 1]:
+    for node in sorted_idx[1:len(sorted_idx) - 1]:
         idx = front_perato.index(node)
-        sorted_idx = sorted_idx_f2.index(node)
-        distance[idx] += abs(value2[sorted_idx_f2[sorted_idx + 1]] - value2[sorted_idx_f2[sorted_idx - 1]] / (
+        i_sorted_idx = sorted_idx.index(node)
+        distance[idx] += abs(value2[sorted_idx[i_sorted_idx + 1]] - value2[sorted_idx[i_sorted_idx - 1]] / (
                 max(value2) - min(value2)))
 
     return distance
@@ -426,18 +438,17 @@ def get_better_solution(num_of_solution, front, crowding_distance_values, popula
         solutions.append(population[front[0][i]])
         i += 1
 
-    if len(solutions) <= num_of_solution:
-        rank = 1
-        while len(solutions) < num_of_solution:
-            for point in front[rank]:
-                if len(solutions) == num_of_solution:
-                    break
-                idx = crowding_distance_values[rank].index(max(crowding_distance_values[rank]))
+    rank = 1
+    while len(solutions) < num_of_solution:
+        for _ in front[rank]:
+            if len(solutions) == num_of_solution:
+                break
+            idx = crowding_distance_values[rank].index(max(crowding_distance_values[rank]))
 
-                solutions.append(population[front[rank][idx]])
+            solutions.append(population[front[rank][idx]])
 
-                crowding_distance_values[rank][idx] = -math.inf
-            rank += 1
+            crowding_distance_values[rank][idx] = -math.inf
+        rank += 1
     return solutions
 
 
@@ -450,12 +461,9 @@ def visualize_perato(fronts, f1, f2):
         front_f2 = [f2[idx] for idx in front]
         plt.scatter(front_f1, front_f2, color=colors[i])
 
-
     plt.xlabel('Cost')
     plt.ylabel('Delay')
-    plt.show()
-
-    # plt.savefig(f"./experiments/images/{network.name}_{SFCs.name}.png")
+    plt.savefig(f"./experiments/images/{network.name}_{SFCs.name}.png")
 
 
 def main(p_size, num_loop, birth_rate):
