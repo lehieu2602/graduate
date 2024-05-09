@@ -1,0 +1,22 @@
+{
+  "num_epochs": 60,
+  "num_wolfs": 20,
+  "exploit_alpha": 0.2,
+  "exploit_beta": 0.2,
+  "exploit_delta": 0.2,
+  "exploit_ab": 0.4,
+  "exploit_abd": 0.6000000000000001,
+  "exploit_nsm": 0.3999999999999999,
+  "explore_epsilon": 0.005,
+  "threshold_state_lower": 0.3,
+  "threshold_state_upper": 1,
+  "save_all": false,
+  "log_path": "././experiments/iegwo/test0.290.71/42/log/input25/request10/exp1",
+  "debug": false,
+  "display": true,
+  "weight_vector": [
+    0.29,
+    0.71
+  ],
+  "seed": 42
+}

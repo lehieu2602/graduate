@@ -485,10 +485,18 @@ def main(p_size, num_loop, birth_rate):
         num_offspring = int(birth_rate * len(Pt) / 100)
         Qt = set()
         for i in range(num_offspring // 2):
-            random_front = random.randint(0, len(front_perato) - 1)
-            random_sol1 = Pt[front_perato[random_front][random.randint(0, len(front_perato[random_front]) - 1)]]
-            random_front = random.randint(0, len(front_perato) - 1)
-            random_sol2 = Pt[front_perato[random_front][random.randint(0, len(front_perato[random_front]) - 1)]]
+            random_front1 = random.randint(0, len(front_perato) - 1)
+            idx_sol1 = random.randint(0, len(front_perato[random_front1]) - 1)
+            random_sol1 = Pt[front_perato[random_front1][idx_sol1]]
+
+            if len(front_perato) > 1:
+                random_front2 = random.choice([i for i in range(len(front_perato)) if i != random_front1])
+                random_sol2 = Pt[front_perato[random_front2][random.randint(0, len(front_perato[random_front2]) - 1)]]
+            else:
+                random_front2 = random_front1
+                idx_sol2 = random.choice([i for i in range(len(front_perato[random_front2])) if i != idx_sol1])
+                random_sol2 = Pt[front_perato[random_front2][idx_sol2]]
+            # random_front2 = random.randint(0, len(front_perato) - 1)
 
             child = crossover(list(random_sol1), list(random_sol2))
             child_mutate1 = mutation(child)
